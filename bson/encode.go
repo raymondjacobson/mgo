@@ -54,6 +54,7 @@ var (
 	typeTime           = reflect.TypeOf(time.Time{})
 	typeString         = reflect.TypeOf("")
 	typeJSONNumber     = reflect.TypeOf(json.Number(""))
+	typeDec128		   = reflect.TypeOf(Dec128{0, 0})
 )
 
 const itoaCacheSize = 32
@@ -431,6 +432,10 @@ func (e *encoder) addElem(name string, v reflect.Value, minSize bool) {
 			e.addElemName('\x02', name)
 			e.addStr(s.String())
 
+		case Dec128:
+			e.addElemName('\x13', name)
+			e.addDec128(s)
+
 		case undefined:
 			e.addElemName('\x06', name)
 
@@ -490,12 +495,21 @@ func (e *encoder) addInt32(v int32) {
 
 func (e *encoder) addInt64(v int64) {
 	u := uint64(v)
-	e.addBytes(byte(u), byte(u>>8), byte(u>>16), byte(u>>24),
-		byte(u>>32), byte(u>>40), byte(u>>48), byte(u>>56))
+	e.addUint64(u)
+}
+
+func (e *encoder) addUint64(v uint64) {
+	e.addBytes(byte(v), byte(v>>8), byte(v>>16), byte(v>>24),
+		byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
 }
 
 func (e *encoder) addFloat64(v float64) {
 	e.addInt64(int64(math.Float64bits(v)))
+}
+
+func (e *encoder) addDec128(v Dec128) {
+	e.addUint64(v.Low64)
+	e.addUint64(v.High64)
 }
 
 func (e *encoder) addBytes(v ...byte) {

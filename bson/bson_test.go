@@ -166,6 +166,8 @@ var allItems = []testItemType{
 		"\x12_\x00\x02\x01\x00\x00\x00\x00\x00\x00"},
 	{bson.M{"_": int64(258 << 32)},
 		"\x12_\x00\x00\x00\x00\x00\x02\x01\x00\x00"},
+	{bson.M{"_": bson.Dec128{0x0000000000000001, 0x303e000000000000}}, // 0.1
+		"\x13_\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3e\x30"},
 	{bson.M{"_": bson.MaxKey},
 		"\x7F_\x00"},
 	{bson.M{"_": bson.MinKey},
@@ -1533,6 +1535,287 @@ func (s *S) TestObjectIdJSONMarshaling(c *C) {
 			}
 		}
 	}
+}
+
+// --------------------------------------------------------------------------
+// Tests for the Dec128 BSON type.
+
+func (s *S) TestDec128IsNaN(c *C) {
+	NaN := bson.Dec128{0, 0x7c00000000000000}
+	notNaN := bson.Dec128{0, 0}
+	NaNConstructed := bson.MakeDec128NaN()
+	c.Assert(NaN.IsNaN(), Equals, true)
+	c.Assert(notNaN.IsNaN(), Equals, false)
+	c.Assert(NaNConstructed.IsNaN(), Equals, true)
+}
+
+func (s *S) TestDec128IsPositiveInfinity(c *C) {
+	positiveInfinity := bson.Dec128{0, 0x7800000000000000}
+	positiveInfinityConstructed := bson.MakeDec128Infinity(false)
+	negativeInfinity := bson.Dec128{0, 0xf800000000000000}
+	c.Assert(positiveInfinity.IsPositiveInfinity(), Equals, true)
+	c.Assert(positiveInfinityConstructed.IsPositiveInfinity(), Equals, true)
+	c.Assert(negativeInfinity.IsPositiveInfinity(), Equals, false)
+}
+
+func (s *S) TestDec128IsNegativeInfinity(c *C) {
+	negativeInfinity := bson.Dec128{0, 0xf800000000000000}
+	negativeInfinityConstructed := bson.MakeDec128Infinity(true)
+	positiveInfinity := bson.Dec128{0, 0x7800000000000000}
+	c.Assert(negativeInfinity.IsNegativeInfinity(), Equals, true)
+	c.Assert(negativeInfinityConstructed.IsNegativeInfinity(), Equals, true)
+	c.Assert(positiveInfinity.IsNegativeInfinity(), Equals, false)
+}
+
+func (s *S) TestDec128IsIdentical(c *C) {
+	one := bson.Dec128{0x0000000000000001, 0x3040000000000000}
+	two  := bson.Dec128{0x0000000000000002, 0x3040000000000000}
+	c.Assert(one.IsIdentical(one), Equals, true)
+	c.Assert(two.IsIdentical(two), Equals, true)
+	c.Assert(one.IsIdentical(two), Equals, false)
+	c.Assert(two.IsIdentical(one), Equals, false)
+}
+
+func (s *S) TestDec128ToStringInfinity(c *C) {
+	positiveInfinity := bson.Dec128{0, 0x7800000000000000}
+	negativeInfinity := bson.Dec128{0, 0xf800000000000000}
+	c.Assert(positiveInfinity.ToString(), Equals, "Infinity")
+	c.Assert(negativeInfinity.ToString(), Equals, "-Infinity")
+}
+
+func (s *S) TestDec128ToStringNaN(c *C) {
+	pNaN := bson.Dec128{0, 0x7c00000000000000}
+	nNaN := bson.Dec128{0, 0xfc00000000000000}
+	psNaN := bson.Dec128{0, 0x7e00000000000000}
+	nsNaN := bson.Dec128{0, 0xfe00000000000000}
+	payloadNaN := bson.Dec128{12, 0x7e00000000000000}
+	c.Assert(pNaN.ToString(), Equals, "NaN")
+	c.Assert(nNaN.ToString(), Equals, "NaN")
+	c.Assert(psNaN.ToString(), Equals, "NaN")
+	c.Assert(nsNaN.ToString(), Equals, "NaN")
+	c.Assert(payloadNaN.ToString(), Equals, "NaN")
+}
+
+func (s *S) TestDec128ToStringRegular(c *C) {
+	one := bson.Dec128{0x0000000000000001, 0x3040000000000000}
+	// 10E-1
+	oneShift := bson.Dec128{0x000000000000000a, 0x303e000000000000}
+	zero := bson.Dec128{0x0000000000000000, 0x3040000000000000}
+	two  := bson.Dec128{0x0000000000000002, 0x3040000000000000}
+	negativeOne := bson.Dec128{0x0000000000000001, 0xb040000000000000}
+	negativeZero := bson.Dec128{0x0000000000000000, 0xb040000000000000}
+	// 0.1
+	tenth := bson.Dec128{0x0000000000000001, 0x303e000000000000}
+	// 0.001234
+	smallestRegular := bson.Dec128{0x00000000000004d2, 0x3034000000000000}
+	// 12345789012
+	largestRegular  := bson.Dec128{0x0000001cbe991a14, 0x3040000000000000}
+	// 0.00123400000
+	trailingZeros := bson.Dec128{0x00000000075aef40, 0x302a000000000000}
+	// 0.1234567890123456789012345678901234
+	allDigits := bson.Dec128{0xde825cd07e96aff2, 0x2ffc3cde6fff9732}
+	c.Assert(one.ToString(), Equals, "1")
+	c.Assert(oneShift.ToString(), Equals, "1.0")
+	c.Assert(zero.ToString(), Equals, "0")
+	c.Assert(two .ToString(), Equals, "2")
+	c.Assert(negativeOne.ToString(), Equals, "-1")
+	c.Assert(negativeZero.ToString(), Equals, "-0")
+	c.Assert(tenth.ToString(), Equals, "0.1")
+	c.Assert(smallestRegular.ToString(), Equals, "0.001234")
+	c.Assert(largestRegular .ToString(), Equals, "123456789012")
+	c.Assert(trailingZeros.ToString(), Equals, "0.00123400000")
+	c.Assert(allDigits.ToString(), Equals, "0.1234567890123456789012345678901234")
+}
+
+func (s *S) TestDec128ToStringScientific(c *C) {
+	// 1.000000000000000000000000000000000E+6144
+	huge := bson.Dec128{0x38c15b0a00000000, 0x5ffe314dc6448d93}
+	// 1E-6176
+	tiny := bson.Dec128{0x0000000000000001, 0x0000000000000000}
+	// -1E-6176
+	negTiny := bson.Dec128{0x0000000000000001, 0x8000000000000000}
+	// 9.999987654321E+112
+	large := bson.Dec128{0x000009184db63eb1, 0x3108000000000000}
+	// 9.999999999999999999999999999999999E+6144
+	largest := bson.Dec128{0x378d8e63ffffffff, 0x5fffed09bead87c0}
+	// 9.999999999999999999999999999999999E-6143
+	tiniest := bson.Dec128{0x378d8e63ffffffff, 0x0001ed09bead87c0}
+	// 5.192296858534827628530496329220095E+33
+	fullHouse := bson.Dec128{0xffffffffffffffff, 0x3040ffffffffffff}
+	c.Assert(huge.ToString(), Equals, "1.000000000000000000000000000000000E+6144")
+	c.Assert(tiny.ToString(), Equals, "1E-6176")
+	c.Assert(negTiny.ToString(), Equals, "-1E-6176")
+	c.Assert(large.ToString(), Equals, "9.999987654321E+112")
+	c.Assert(largest.ToString(), Equals, "9.999999999999999999999999999999999E+6144")
+	c.Assert(tiniest.ToString(), Equals, "9.999999999999999999999999999999999E-6143")
+	c.Assert(fullHouse.ToString(), Equals, "5.192296858534827628530496329220095E+33")
+}
+
+func (s *S) TestDec128ToStringZeros(c *C) {
+	// 0
+	zero := bson.Dec128{0x0000000000000000, 0x3040000000000000};
+	// 0E+300
+	posExpZero := bson.Dec128{0x0000000000000000, 0x3298000000000000};
+	// 0E-600
+	negExpZero := bson.Dec128{0x0000000000000000, 0x2b90000000000000}
+	c.Assert(zero.ToString(), Equals, "0")
+	c.Assert(posExpZero.ToString(), Equals, "0E+300")
+	c.Assert(negExpZero.ToString(), Equals, "0E-600")
+}
+
+func (s *S) TestDec128FromStringInvalidInputs(c *C) {
+	c.Assert(bson.MakeDec128(".").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128(".e").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("invalid").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("in").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("i").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("E02").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("..1").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("1abcede").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("1.24abc").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("1.24abcE+02").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("1.24E+02abc2d").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("E+02").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("e+02").IsNaN(), Equals, true)
+}
+
+func (s *S) TestDec128FromStringInfinity(c *C) {
+	c.Assert(bson.MakeDec128("Infinity").IsPositiveInfinity(), Equals, true)
+	c.Assert(bson.MakeDec128("+Infinity").IsPositiveInfinity(), Equals, true)
+	c.Assert(bson.MakeDec128("+Inf").IsPositiveInfinity(), Equals, true)
+	c.Assert(bson.MakeDec128("-Inf").IsNegativeInfinity(), Equals, true)
+	c.Assert(bson.MakeDec128("-Infinity").IsNegativeInfinity(), Equals, true)
+}
+
+func (s *S) TestDec128FromStringNaN(c *C) {
+	c.Assert(bson.MakeDec128("NaN").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("+NaN").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("-NaN").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("-nan").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("1e").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("+nan").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("nan").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("Nan").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("+Nan").IsNaN(), Equals, true)
+	c.Assert(bson.MakeDec128("-Nan").IsNaN(), Equals, true)
+}
+
+func (s *S) TestDec128FromStringSimple(c *C) {
+	one := bson.MakeDec128("1");
+	negativeOne := bson.MakeDec128("-1");
+	zero := bson.MakeDec128("0");
+	negativeZero := bson.MakeDec128("-0");
+	number := bson.MakeDec128("12345678901234567");
+	numberTwo := bson.MakeDec128("989898983458");
+	negativeNumber := bson.MakeDec128("-12345678901234567");
+	fractionalNumber := bson.MakeDec128("0.12345");
+	leadingZero := bson.MakeDec128("0.0012345");
+	leadingInsignificantZeros := bson.MakeDec128("00012345678901234567");
+	c.Assert(one.IsIdentical(bson.Dec128{0x0000000000000001, 0x3040000000000000}), Equals, true);
+	c.Assert(negativeOne.IsIdentical(bson.Dec128{0x0000000000000001, 0xb040000000000000}), Equals, true);
+	c.Assert(zero.IsIdentical(bson.Dec128{0x0000000000000000, 0x3040000000000000}), Equals, true);
+	c.Assert(negativeZero.IsIdentical(bson.Dec128{0x0000000000000000, 0xb040000000000000}), Equals, true);
+	c.Assert(number.IsIdentical(bson.Dec128{0x002bdc545d6b4b87, 0x3040000000000000}), Equals, true);
+	c.Assert(numberTwo.IsIdentical(bson.Dec128{0x000000e67a93c822, 0x3040000000000000}), Equals, true);
+	c.Assert(negativeNumber.IsIdentical(bson.Dec128{0x002bdc545d6b4b87, 0xb040000000000000}), Equals, true);
+	c.Assert(fractionalNumber.IsIdentical(bson.Dec128{0x0000000000003039, 0x3036000000000000}), Equals, true);
+	c.Assert(leadingZero.IsIdentical(bson.Dec128{0x0000000000003039, 0x3032000000000000}), Equals, true);
+	c.Assert(leadingInsignificantZeros.IsIdentical(bson.Dec128{0x002bdc545d6b4b87, 0x3040000000000000}), Equals, true);
+}
+
+func (s *S) TestDec128FromStringScientific(c *C) {
+	ten := bson.MakeDec128("10e0");
+	tenAgain := bson.MakeDec128("1e1");
+	one := bson.MakeDec128("10e-1");
+	hugeExp := bson.MakeDec128("12345678901234567e6111");
+	tinyExp := bson.MakeDec128("1e-6176");
+	fractional := bson.MakeDec128("-100E-10");
+	c.Assert(ten.IsIdentical(bson.Dec128{0x000000000000000a, 0x3040000000000000}), Equals, true)
+	c.Assert(tenAgain.IsIdentical(bson.Dec128{0x0000000000000001, 0x3042000000000000}), Equals, true)
+	c.Assert(one.IsIdentical(bson.Dec128{0x000000000000000a, 0x303e000000000000}), Equals, true)
+	c.Assert(hugeExp.IsIdentical(bson.Dec128{0x002bdc545d6b4b87, 0x5ffe000000000000}), Equals, true)
+	c.Assert(tinyExp.IsIdentical(bson.Dec128{0x0000000000000001, 0x0000000000000000}), Equals, true)
+	c.Assert(fractional.IsIdentical(bson.Dec128{0x0000000000000064, 0xb02c000000000000}), Equals, true)
+}
+
+func (s *S) TestDec128FromStringLarge(c *C) {
+	large := bson.MakeDec128("12345689012345789012345");
+	allDigits := bson.MakeDec128("1234567890123456789012345678901234");
+	largest := bson.MakeDec128("9.999999999999999999999999999999999E+6144");
+	tiniest := bson.MakeDec128("9.999999999999999999999999999999999E-6143");
+	fullHouse := bson.MakeDec128("5.192296858534827628530496329220095E+33");
+
+	c.Assert(large.IsIdentical(bson.Dec128{0x42da3a76f9e0d979, 0x304000000000029d}), Equals, true)
+	c.Assert(allDigits.IsIdentical(bson.Dec128{0xde825cd07e96aff2, 0x30403cde6fff9732}), Equals, true)
+	c.Assert(largest.IsIdentical(bson.Dec128{0x378d8e63ffffffff, 0x5fffed09bead87c0}), Equals, true)
+	c.Assert(tiniest.IsIdentical(bson.Dec128{0x378d8e63ffffffff, 0x0001ed09bead87c0}), Equals, true)
+	c.Assert(fullHouse.IsIdentical(bson.Dec128{0xffffffffffffffff, 0x3040ffffffffffff}), Equals, true)
+}
+
+func (s *S) TestDec128FromStringExponentNormalization(c *C) {
+	trailingZeros := bson.MakeDec128("1000000000000000000000000000000000000000");
+	oneNormalize := bson.MakeDec128("10000000000000000000000000000000000");
+	noNormalize := bson.MakeDec128("1000000000000000000000000000000000");
+	aDisaster := bson.MakeDec128("10000000000000000000000000000000000000000000000000000000000000000000");
+
+	zero := bson.MakeDec128("1E-6177");
+
+	c.Assert(trailingZeros.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x304c314dc6448d93}), Equals, true)
+	c.Assert(oneNormalize.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3042314dc6448d93}), Equals, true)
+	c.Assert(noNormalize.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3040314dc6448d93}), Equals, true)
+	c.Assert(aDisaster.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3084314dc6448d93}), Equals, true)
+	c.Assert(zero.IsIdentical(bson.Dec128{0x0000000000000000, 0x0000000000000000}), Equals, true)
+}
+
+func (s *S) TestDec128FromStringZeros(c *C) {
+	zero := bson.MakeDec128("0");
+	exponentZero := bson.MakeDec128("0e-611");
+	largeExponent := bson.MakeDec128("0e+6000");
+	negativeZero := bson.MakeDec128("-0e-1");
+
+	c.Assert(zero.IsIdentical(bson.Dec128{0x0000000000000000, 0x3040000000000000}), Equals, true)
+	c.Assert(exponentZero.IsIdentical(bson.Dec128{0x0000000000000000, 0x2b7a000000000000}), Equals, true)
+	c.Assert(largeExponent.IsIdentical(bson.Dec128{0x0000000000000000, 0x5f20000000000000}), Equals, true)
+	c.Assert(negativeZero.IsIdentical(bson.Dec128{0x0000000000000000, 0xb03e000000000000}), Equals, true)
+}
+
+func (s *S) TestDec128FromStringRound(c *C) {
+	truncate := bson.MakeDec128("10E-6177");
+	up := bson.MakeDec128("15E-6177");
+	checkTieUp := bson.MakeDec128("251E-6178");
+	checkTieTrunc := bson.MakeDec128("250E-6178");
+
+	extraDigitUp := bson.MakeDec128("10000000000000000000000000000000006");
+	extraDigitDown := bson.MakeDec128("10000000000000000000000000000000003");
+	extraDigitTie := bson.MakeDec128("10000000000000000000000000000000005");
+	extraDigitTieBreak := bson.MakeDec128("100000000000000000000000000000000051");
+
+	tooBig := bson.MakeDec128("10000000000000000000000000000000006E6111");
+
+	largestBinary := bson.MakeDec128("12980742146337069071326240823050239");
+
+	roundPropagate := bson.MakeDec128("99999999999999999999999999999999999");
+	roundPropagateLarge := bson.MakeDec128("9999999999999999999999999999999999999999999999999999999999999999999");
+	notInf := bson.MakeDec128("9999999999999999999999999999999999E6111");
+	roundPropagateInf := bson.MakeDec128("99999999999999999999999999999999999E6144");
+
+	c.Assert(truncate.IsIdentical(bson.Dec128{0x0000000000000001, 0x0000000000000000}), Equals, true)
+	c.Assert(up.IsIdentical(bson.Dec128{0x0000000000000002, 0x0000000000000000}), Equals, true)
+	c.Assert(checkTieUp.IsIdentical(bson.Dec128{0x0000000000000003, 0x0000000000000000}), Equals, true)
+	c.Assert(checkTieTrunc.IsIdentical(bson.Dec128{0x0000000000000002, 0x0000000000000000}), Equals, true)
+
+	c.Assert(extraDigitUp.IsIdentical(bson.Dec128{0x38c15b0a00000001, 0x3042314dc6448d93}), Equals, true)
+	c.Assert(extraDigitDown.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3042314dc6448d93}), Equals, true)
+	c.Assert(extraDigitTie.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3042314dc6448d93}), Equals, true)
+	c.Assert(extraDigitTieBreak.IsIdentical(bson.Dec128{0x38c15b0a00000001, 0x3044314dc6448d93}), Equals, true)
+
+	c.Assert(tooBig.IsIdentical(bson.Dec128{0x0000000000000000, 0x7800000000000000}), Equals, true)
+	c.Assert(largestBinary.IsIdentical(bson.Dec128{0x0000000000000000, 0x3042400000000000}), Equals, true)
+	c.Assert(roundPropagate.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3044314dc6448d93}), Equals, true)
+	c.Assert(roundPropagateLarge.IsIdentical(bson.Dec128{0x38c15b0a00000000, 0x3084314dc6448d93}), Equals, true)
+	c.Assert(notInf.IsIdentical(bson.Dec128{0x378d8e63ffffffff, 0x5fffed09bead87c0}), Equals, true)
+	c.Assert(roundPropagateInf.IsIdentical(bson.Dec128{0x0000000000000000, 0x7800000000000000}), Equals, true)
 }
 
 // --------------------------------------------------------------------------

@@ -533,6 +533,8 @@ func (d *decoder) readElemTo(out reflect.Value, kind byte) (good bool) {
 		in = MongoTimestamp(d.readInt64())
 	case 0x12: // Int64
 		in = d.readInt64()
+	case 0x13: // Dec128
+		in = d.readDec128()
 	case 0x7F: // Max key
 		in = MaxKey
 	case 0xFF: // Min key
@@ -804,6 +806,27 @@ func (d *decoder) readInt64() int64 {
 		(uint64(b[5]) << 40) |
 		(uint64(b[6]) << 48) |
 		(uint64(b[7]) << 56))
+}
+
+func (d *decoder) readDec128() Dec128 {
+	b := d.readBytes(16)
+	low64 := uint64((uint64(b[0]) << 0) |
+		(uint64(b[1]) << 8) |
+		(uint64(b[2]) << 16) |
+		(uint64(b[3]) << 24) |
+		(uint64(b[4]) << 32) |
+		(uint64(b[5]) << 40) |
+		(uint64(b[6]) << 48) |
+		(uint64(b[7]) << 56))
+	high64 := uint64((uint64(b[8]) << 0) |
+		(uint64(b[9]) << 8) |
+		(uint64(b[10]) << 16) |
+		(uint64(b[11]) << 24) |
+		(uint64(b[12]) << 32) |
+		(uint64(b[13]) << 40) |
+		(uint64(b[14]) << 48) |
+		(uint64(b[15]) << 56))
+	return Dec128{low64, high64}
 }
 
 func (d *decoder) readByte() byte {
